@@ -1,0 +1,12 @@
+#!/bin/bash
+
+echo "Welcome to MySqlPort Scanner"
+read -p "Enter the host address: " host
+
+nmap -sS "$host" -p 3306 >/dev/null -oG scanres
+grep "open" scanres > openport
+
+cat openport
+rm scanres
+
+echo "Exit scanning"
