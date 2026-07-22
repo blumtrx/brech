@@ -5,7 +5,7 @@ print("Hello world")
 soc = socket.socket()
 
 host = input("Enter Host IP: ")
-port = int(input("Inpur port number: "))
+port = int(input("Input port number: "))
 
 try:
     soc.connect((host, port))
