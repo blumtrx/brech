@@ -19,7 +19,7 @@ if [ -z "$TARGET" ]; then
 fi
 
 # Tools check
-TOOLS=("whois" "whatweb" "dig" "waf00f")
+TOOLS=("whois" "whatweb" "dig" "wafw00f")
 
 for tool in "${TOOLS}"; do
   if ! command -v $tool &> /dev/null; then
