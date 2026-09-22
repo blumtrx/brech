@@ -10,6 +10,7 @@ readonly RESET='\033[0m'
 usage() {
     printf 'Usage: %s <domain>\n' "$0"
     printf 'Example: %s example.com\n' "$0"
+    printf '\nPerforms certificate transparency (crt.sh) enumeration followed by DNS resolution (A/AAAA/CNAME).\n'
 }
 
 if [[ ${1:-} == '-h' || ${1:-} == '--help' || $# -ne 1 ]]; then
@@ -28,7 +29,7 @@ if [[ ! $target =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
     exit 1
 fi
 
-for tool in curl dig jq sort; do
+for tool in curl dig python3 sort; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf '%b[!] Required command is missing: %s%b\n' "$RED" "$tool" "$RESET" >&2
         exit 1
@@ -38,22 +39,64 @@ done
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
+n_tries=3
 printf '%b[*] Discovering subdomains for %s%b\n' "$GREEN" "$target" "$RESET"
 
-if ! curl --fail --silent --show-error --max-time 20 \
-    "https://crt.sh/?q=%25.${target}&output=json" >"$tmpdir/certificates.json"; then
-    printf '%b[!] Certificate transparency lookup failed%b\n' "$YELLOW" "$RESET" >&2
+certs_raw=""
+for attempt in $(seq 1 "$n_tries"); do
+    printf '%b[*] Querying crt.sh (attempt %d/%d)...%b\n' "$YELLOW" "$attempt" "$n_tries" "$RESET" >&2
+    if certs_raw=$(curl --fail --silent --show-error --max-time 25 \
+        "https://crt.sh/?q=%25.${target}&output=json" 2>/dev/null); then
+        break
+    fi
+    printf '%b[!] crt.sh attempt %d failed, retrying in 3s...%b\n' "$YELLOW" "$attempt" "$RESET" >&2
+    sleep 3
+done
+
+if [[ -z $certs_raw ]]; then
+    printf '%b[!] crt.sh lookup failed after %d attempts; skipping certificate enumeration%b\n' "$YELLOW" "$n_tries" "$RESET" >&2
     : >"$tmpdir/certificates.json"
+else
+    printf '%s\n' "$certs_raw" >"$tmpdir/certificates.json"
 fi
 
 {
     printf '%s\n' "$target"
-    jq -r '.[].name_value // empty' "$tmpdir/certificates.json" 2>/dev/null || true
-} | tr '\r' '\n' | sed 's/^\*\.//' | awk -v domain="$target" '
-    tolower($0) ~ ("(^|\\.)" domain "$") && $0 !~ /[*[:space:]]/ { print tolower($0) }
-' | sort -u >"$tmpdir/subdomains"
+    python3 - "$tmpdir/certificates.json" "$target" <<'PYEOF' 2>/dev/null || true
+import json, sys, re
 
-printf '%b[+] Found %s names%b\n' "$GREEN" "$(wc -l <"$tmpdir/subdomains")" "$RESET"
+try:
+    data = json.load(open(sys.argv[1]))
+except (json.JSONDecodeError, OSError, FileNotFoundError):
+    sys.exit(0)
+
+if not isinstance(data, list):
+    sys.exit(0)
+
+domain = sys.argv[2].lower()
+pat = re.compile(r'(?:^|\.)' + re.escape(domain) + r'$')
+
+for entry in data:
+    if not isinstance(entry, dict):
+        continue
+    name = entry.get('name_value') or ''
+    if not isinstance(name, str):
+        continue
+    # crt.sh returns "*.example.com" and sometimes multiple names separated by newlines
+    for line in name.splitlines():
+        line = line.strip().lower()
+        line = re.sub(r'^\*\.', '', line)
+        if pat.match(line) and not re.search(r'[*[:space:]]', line):
+            print(line)
+PYEOF
+} | tr '\r' '\n' | sort -u >"$tmpdir/subdomains"
+
+n_subs=$(wc -l <"$tmpdir/subdomains")
+printf '%b[+] Found %s names%b\n' "$GREEN" "$n_subs" "$RESET"
+
+if (( n_subs > 2000 )); then
+    printf '%b[!] Large result set (%s names). DNS resolution may take a while.%b\n' "$YELLOW" "$n_subs" "$RESET" >&2
+fi
 printf '%-45s %-24s %s\n' 'SUBDOMAIN' 'RECORD' 'IP / TARGET'
 printf '%-45s %-24s %s\n' '---------------------------------------------' '------------------------' '-------------------------'
 
@@ -63,11 +106,11 @@ while IFS= read -r subdomain; do
     done < <(dig +short +time=3 +tries=1 A "$subdomain" | grep -E '^[0-9]+(\.[0-9]+){3}$' | sort -u)
 
     while IFS= read -r address; do
-        [[ -n $address ]] && printf '%-45s %-24s %s\n' "$subdomain" 'AAAA' "$address"
-    done < <(dig +short +time=3 +tries=1 AAAA "$subdomain" | grep -E '^[0-9a-fA-F:]+$' | sort -u)
+        [[ -n "$address" ]] && printf '%-45s %-24s %s\n' "$subdomain" 'AAAA' "$address"
+    done < <(dig +short +time=3 +tries=1 AAAA "$subdomain" | grep -E '^[0-9a-fA-F:]+$' | grep -vE '^:?(:|::$)+$' | sort -u)
 
     while IFS= read -r cname; do
-        [[ -n $cname ]] && printf '%-45s %-24s %s\n' "$subdomain" 'CNAME' "$cname"
+        [[ -n "$cname" ]] && printf '%-45s %-24s %s\n' "$subdomain" 'CNAME' "$(printf '%.43s' "$cname")"
     done < <(dig +short +time=3 +tries=1 CNAME "$subdomain" | sed 's/\.$//' | sort -u)
 done <"$tmpdir/subdomains"
 
