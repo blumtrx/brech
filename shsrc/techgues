@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# This script checks the status of a Web Application Firewall (WAF) for a given target URL using various tools.
+
+#Color codes for output formatting
+RED='\e[1;31m'
+GREEN='\e[1;32m'
+NC='\e[1;0m' # No Color
+
+echo -e "${RED}Checking Web Application Firewall (WAF) status...${NC}"
+
+target_url="$1"
+
+echo "Target URL: $target_url"
+echo "----------------------------------------"
+
+echo -e "${GREEN}Check with httpx-toolkit${NC}"
+httpx-toolkit -u "$target_url" -silent -sc -ip -td -server
+echo "----------------------------------------"
+
+echo -e "${GREEN}Check with curl${NC}"
+curl -sIL "$target_url"
+
+echo "----------------------------------------"
+
+echo -e "${GREEN}Check with whatweb${NC}"
+whatweb "$target_url"
+
+echo "----------------------------------------"
+echo -e "${GREEN}Check with wafw00f${NC}"
+wafw00f "$target_url"
+
+echo "----------------------------------------"
+
+echo "WAF status check completed."
