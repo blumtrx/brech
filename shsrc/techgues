@@ -12,6 +12,7 @@ RED='\e[1;31m'
 GREEN='\e[1;32m'
 NC='\e[1;0m' # No Color
 
+# Define the tools to be used for checking WAF status
 tools=("curl" "httpx-toolkit" "whois" "whatweb" "wafw00f")
 
 if [ $# -ne 1 ]; then
@@ -32,11 +33,11 @@ for tool in "${tools[@]}"; do
     fi
 done
 
-echo -e "${RED}Checking Web Application Firewall (WAF) status...${NC}"
+echo -e "${RED}Checking Web Application Technology & Firewall (WAF) status...${NC}"
 
 target_url="$1"
 
-echo "Target URL: $target_url"
+echo "Target Application: $target_url"
 
 echo "----------------------------------------"
 echo -e "${GREEN}Check with curl${NC}"
