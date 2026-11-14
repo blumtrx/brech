@@ -2,27 +2,55 @@
 
 # This script checks the status of a Web Application Firewall (WAF) for a given target URL using various tools.
 
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Please run as root${NC}"
+    exit 1
+fi
+
 #Color codes for output formatting
 RED='\e[1;31m'
 GREEN='\e[1;32m'
 NC='\e[1;0m' # No Color
+
+tools=("curl" "httpx-toolkit" "whois" "whatweb" "wafw00f")
+
+if [ $# -ne 1 ]; then
+    echo -e "${RED}Usage: $0 <target_url>${NC}"
+    exit 1
+fi
+
+for tool in "${tools[@]}"; do
+    if ! command -v "$tool" &> /dev/null; then
+        echo -e "${RED}Error: $tool is not installed.${NC}"
+        echo -e "${RED}Installing $tool...${NC}"
+        apt-get install "$tool" -y >/dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Failed to install $tool. Please install it manually.${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}$tool installed successfully.${NC}"
+    fi
+done
 
 echo -e "${RED}Checking Web Application Firewall (WAF) status...${NC}"
 
 target_url="$1"
 
 echo "Target URL: $target_url"
-echo "----------------------------------------"
 
-echo -e "${GREEN}Check with httpx-toolkit${NC}"
-httpx-toolkit -u "$target_url" -silent -sc -ip -td -server
 echo "----------------------------------------"
-
 echo -e "${GREEN}Check with curl${NC}"
 curl -sIL "$target_url"
 
 echo "----------------------------------------"
+echo -e "${GREEN}Check with httpx-toolkit${NC}"
+httpx-toolkit -u "$target_url" -silent -sc -ip -td -server
 
+echo "----------------------------------------"
+echo -e "${GREEN}Check with whois${NC}"
+whois "$target_url" | grep -i "Registrar\|Name Server\|Creation Date\|Expiration Date"
+
+echo "----------------------------------------"
 echo -e "${GREEN}Check with whatweb${NC}"
 whatweb "$target_url"
 
